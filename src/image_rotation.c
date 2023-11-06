@@ -20,6 +20,7 @@ pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
 //How will you track which index in the request queue to remove next?
 //How will you update and utilize the current number of requests in the request queue?
 //How will you track the p_thread's that you create for workers?
+pthread_t wokerArray[1024];
 //How will you know where to insert the next request received into the request queue?
 
 /*
@@ -32,7 +33,14 @@ pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
     it should output the threadId, requestNumber, file_name into the logfile and stdout.
 */
 void log_pretty_print(FILE* to_write, int threadId, int requestNumber, char * file_name){
-   
+    pthread_mutex_lock(&mut1);
+    // write to file
+    fprintf(to_write, "[%d][%d][%s]\n", threadId, requestNumber, file_name);
+    fflush(to_write);
+    pthread_mutex_unlock(&mut1);
+    // print to stdout
+    fprintf(stdout, "[%d][%d][%s]\n", threadId, requestNumber, file_name);
+    fflush(stdout);
 }
 
 
