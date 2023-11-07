@@ -40,14 +40,16 @@
 
 /********************* [ Helpful Typedefs        ] ************************/
 
-typedef struct request_queue
-{
-    //what data do you need here?
-}request_t; 
+typedef struct request_queue { // linked list
+    char file_path[BUFF_SIZE]; 
+    int angle; // stores angle of rotate, 180 or 270
+    request_t *next;
+} request_t; 
 
-typedef struct processing_args
-{
-   //what data do you need here?
+typedef struct processing_args {
+   char directory_path[BUFF_SIZE];
+   int num_workers;
+   int angle;
 } processing_args_t;
 
 
