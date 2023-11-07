@@ -20,7 +20,7 @@ pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
 //How will you track which index in the request queue to remove next?
 //How will you update and utilize the current number of requests in the request queue?
 //How will you track the p_thread's that you create for workers?
-pthread_t wokerArray[1024];
+pthread_t workerArray[1024];
 //How will you know where to insert the next request received into the request queue?
 
 /*
@@ -154,11 +154,51 @@ void * worker(void *args)
 
 int main(int argc, char* argv[])
 {
+    // Check validity of input arguments
     if(argc != 5)
     {
-        fprintf(stderr, "Usage: File Path to image dirctory, File path to output dirctory, number of worker thread, and Rotation angle\n");
+        fprintf(stderr, "Usage: File Path to image dirctory, File path to output directory, number of worker thread, and Rotation angle\n");
+        return -1;
     }
-    
-    ///TODO: 
+
+    // Open the file path to output directory
+    // Check if fopen is successful
+    log_file = fopen(argv[2], "w");
+    if(log_file == NULL){
+        fprintf(stderr, "Enter a valid output directory\n");
+        return -1;
+    }
+
+    // Get the number of worker threads needed
+    // Declare one processing thread as well
+    worker_thr_num = atoi(argv[3]);
+    pthread_t processing_thread;
+
+    // Set the arguments for the processing thread
+    processing_args_t *proc_args = malloc(sizeof(processing_args_t));
+    strcpy(proc_args->directory_path, argv[1]);
+    proc_args->num_workers = worker_thr_num;
+    proc_args->angle = atoi(argv[4]);
+
+    // Create the processing thread with processing args
+    pthread_create(&processing_thread, NULL, processing, proc_args);
+
+    // Create worker_thr_num number of worker threads
+    // RobertW : Not sure if this way of setting id or workerArray is correct
+    for(int i = 0; i < worker_thr_num; i++){   
+        id_arr[i] = i; 
+        pthread_create(&workerArray[i], NULL, worker, &id_arr[i]);
+    }
+
+    // Join all threads after program is done
+    pthread_join(processing_thread, NULL);
+    for(int i = 0; i < worker_thr_num; i++){   
+        pthread_join(workerArray[i], NULL);
+    }
+
+    free(proc_args);
+    fclose(log_file);
+
+    return 0;
 
 }
