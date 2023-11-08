@@ -16,11 +16,24 @@ pthread_mutex_t queue_mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t q_full_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
 //How will you track the requests globally between threads? How will you ensure this is thread safe?
-//How will you track which index in the request queue to remove next?
-//How will you update and utilize the current number of requests in the request queue?
+request_t *request_queue = NULL;
+//How will you track which index in the request queue to remove next? We will use a dequeue function
+request_t *dequeue_request() {
+    if (request_queue == NULL) {
+        return NULL; // Queue is empty
+    }
+
+    request_t *ret_request = request_queue;
+    request_queue = request_queue->next;
+    queue_len--;
+
+    return ret_request;
+}
+//How will you update and utilize the current number of requests in the request queue? 
+queue_len = 0;
 //How will you track the p_thread's that you create for workers?
 pthread_t workerArray[1024];
-//How will you know where to insert the next request received into the request queue?
+//How will you know where to insert the next request received into the request queue? We will use an enqueue function
 
 /*
     The Function takes:
@@ -41,7 +54,6 @@ void log_pretty_print(FILE* to_write, int threadId, int requestNumber, char * fi
     fprintf(stdout, "[%d][%d][%s]\n", threadId, requestNumber, file_name);
     fflush(stdout);
 }
-
 
 /*
 
