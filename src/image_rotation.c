@@ -15,20 +15,27 @@ pthread_mutex_t queue_mut = PTHREAD_MUTEX_INITIALIZER;
 //What kind of Condition Variables will you need  (i.e. queue full, queue empty) [Hint you need multiple]
 pthread_cond_t q_full_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t q_has_work_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t q_workers_done_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t traversal_done_cond = PTHREAD_COND_INITIALIZER;
 //How will you track the requests globally between threads? How will you ensure this is thread safe?
 request_t *request_queue = NULL;
 request_t *end_queue = NULL;
 //How will you track which index in the request queue to remove next? We will use a dequeue function
 request_t *dequeue_request() {
+    pthread_mutex_lock(&queue_mut);
+
     if (request_queue == NULL) {
+        pthread_mutex_unlock(&queue_mut);
         return NULL; // Queue is empty
     }
     request_t *ret_request = request_queue;
     request_queue = request_queue->next;
     queue_len--;
-    if (request_queue == NULL) {
-        end_queue = NULL; // Queue is empty
+    if (request_queue == NULL) { // Queue had one object which was dequeued
+        end_queue = NULL; 
     }
+    pthread_mutex_unlock(&queue_mut);
     return ret_request;
 }
 //How will you update and utilize the current number of requests in the request queue? 
@@ -36,9 +43,14 @@ queue_len = 0;
 //How will you track the p_thread's that you create for workers?
 pthread_t workerArray[1024];
 //How will you know where to insert the next request received into the request queue? We will use an enqueue function
-
 void enqueue_request(int new_angle, char* file_path){
+    pthread_mutex_lock(&queue_mut);
+
     request_t *new_request = malloc(sizeof(request_t));
+    if (new_request == NULL) { // Malloc error
+        pthread_mutex_unlock(&queue_mut);
+        return;
+    }
     strcpy(new_request->file_path, file_path);
     new_request->angle = new_angle;
     new_request->next = NULL;
@@ -51,8 +63,11 @@ void enqueue_request(int new_angle, char* file_path){
         end_queue->next = new_request;
         end_queue = end_queue->next;
     }
-    queue_len ++;
+    queue_len++;
+    pthread_mutex_unlock(&queue_mut);
 }
+
+
 /*
     The Function takes:
     to_write: A file pointer of where to write the logs. 
@@ -109,7 +124,7 @@ void *processing(void *args)
     }
 
     struct dirent *entry;
-    request_t request_queue = malloc(sizeof(request_t));
+    request_t *request_queue = malloc(sizeof(request_t));
 
     while ((entry = readdir(dir)) != NULL) {
         // Skip the "." and ".." entries
@@ -117,18 +132,29 @@ void *processing(void *args)
             continue;
         }
 
-        // pthread_mutex_lock(&queue_mut);
-        // pthread_cond_wait(&q_full_cond, &queue_mut);
-        enqueue(angle, entry->d_name);
-        // pthread_mutex_unlock(&queue_mut);
-        // pthread_cond_signal(&q_full_cond, &queue_mut);
-
+        // Check for ".png" files
+        char *extension = strrchr(entry->d_name, '.'); // gets pointer to last occurrence of "." in entry->d_name
+        if (extension != NULL && strcmp(extension, ".png") == 0) { // check if file ends in ".png"
+            enqueue_request(angle, entry->d_name); // synchronization handled in enqueue_request
+            pthread_cond_signal(&q_has_work_cond); // Signal to worker threads that queue isn't empty
+        }
     }
-
     closedir(dir);
 
-    // signal/broadcast to workers to wake them up from their wait
-    
+    // // Processing thread has finished traversing through directory & adding entries to queue
+    // // Broadcast to worker threads that traversal is finished
+    // pthread_cond_broadcast(&traversal_done_cond);
+
+    // // Processing thread blocks for q_empty_cond until workers process all requests and queue is empty
+    // while (queue_len > 0) {
+    //     pthread_cond_wait(&q_workers_done_cond, &queue_mut);
+    // }
+
+    // // Processing thread cross checks condition and broadcasts to worker threads to exit
+    // if (queue_len <= 0) {
+    //     pthread_cond_broadcast(&q_workers_done_cond);
+    // }
+    pthread_exit(NULL);
 }
 
 /*
