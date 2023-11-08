@@ -43,7 +43,7 @@
 typedef struct request_queue { // linked list
     char file_path[BUFF_SIZE]; 
     int angle; // stores angle of rotate, 180 or 270
-    request_t *next; // pointer to next request 
+    struct request_t *next; // pointer to next request 
 } request_t; 
 
 typedef struct processing_args {

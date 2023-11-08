@@ -63,26 +63,37 @@ void *processing(void *args)
     // Check validity of input arguments
     if (args == NULL) {
         fprintf(stderr, "Expect a pointer to a structure processing_args_t.\n");
-        // pthread_exit(NULL); Stephen: would this be right instead of return?
-        return -1;    
+        pthread_exit(NULL); // Yes use this instead of return
     }
     processing_args_t *proc_args = (processing_args_t *)args;
-    char directory_path[BUFF_SIZE] = proc_args->directory_path;
+    char directory_path[BUFF_SIZE];
+    strcpy(directory_path, proc_args->directory_path);
     int num_workers = proc_args->num_workers;
     int angle = proc_args->angle;
 
     // Traverse directory and add its files into shared queue (use mutex lock queue_mut for synchronization)
-    DIR *dir;
-    struct dirent *entry;
-
-    dir = opendir(directory_path);
+    DIR *dir = opendir(directory_path);
     if (dir == NULL) {
         perror("Error opening directory");
-        // pthread_exit(NULL);
-        return -1;
+        pthread_exit(NULL);
     }
+
+    struct dirent *entry;
+    request_t request_queue = malloc(sizeof(request_t));
     while ((entry = readdir(dir)) != NULL) {
+        // Skip the "." and ".." entries
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        pthread_mutex_lock(&queue_mut);
+        pthread_cond_wait(&q_full_cond, &queue_mut);
         
+        strcpy(request_queue->file_path, entry);
+        request_queue->angle = proc_args->angle;
+        request_queue = request_queue->next;
+
+
     }
 
     closedir(dir);
@@ -212,6 +223,7 @@ int main(int argc, char* argv[])
     // Create worker_thr_num number of worker threads
     for(int i = 0; i < worker_thr_num; i++){   
         id_arr[i] = i; 
+        printf("Worker thread ID: %d\n", i);
         pthread_create(&workerArray[i], NULL, worker, (void *)&id_arr[i]);
     }
 
