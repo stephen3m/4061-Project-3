@@ -10,13 +10,12 @@ FILE *log_file;
 //Might be helpful to track the ID's of your threads in a global array
 int id_arr[1024];
 //What kind of locks will you need to make everything thread safe? [Hint you need multiple]
-pthread_mutex_t mut1;
-pthread_mutex_t mut2;
+pthread_mutex_t file_mut = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t queue_mut = PTHREAD_MUTEX_INITIALIZER;
 //What kind of Condition Variables will you need  (i.e. queue full, queue empty) [Hint you need multiple]
 pthread_cond_t q_full_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
 //How will you track the requests globally between threads? How will you ensure this is thread safe?
-// Stephen note: think this is asking us to create a queue. We should discuss if we want to use a linked list implementation or some other data structure.
 //How will you track which index in the request queue to remove next?
 //How will you update and utilize the current number of requests in the request queue?
 //How will you track the p_thread's that you create for workers?
@@ -33,11 +32,11 @@ pthread_t workerArray[1024];
     it should output the threadId, requestNumber, file_name into the logfile and stdout.
 */
 void log_pretty_print(FILE* to_write, int threadId, int requestNumber, char * file_name){
-    pthread_mutex_lock(&mut1);
+    pthread_mutex_lock(&file_mut);
     // write to file
     fprintf(to_write, "[%d][%d][%s]\n", threadId, requestNumber, file_name);
     fflush(to_write);
-    pthread_mutex_unlock(&mut1);
+    pthread_mutex_unlock(&file_mut);
     // print to stdout
     fprintf(stdout, "[%d][%d][%s]\n", threadId, requestNumber, file_name);
     fflush(stdout);
@@ -61,7 +60,34 @@ void log_pretty_print(FILE* to_write, int threadId, int requestNumber, char * fi
 
 void *processing(void *args)
 {
+    // Check validity of input arguments
+    if (args == NULL) {
+        fprintf(stderr, "Expect a pointer to a structure processing_args_t.\n");
+        // pthread_exit(NULL); Stephen: would this be right instead of return?
+        return -1;    
+    }
+    processing_args_t *proc_args = (processing_args_t *)args;
+    char directory_path[BUFF_SIZE] = proc_args->directory_path;
+    int num_workers = proc_args->num_workers;
+    int angle = proc_args->angle;
 
+    // Traverse directory and add its files into shared queue (use mutex lock queue_mut for synchronization)
+    DIR *dir;
+    struct dirent *entry;
+
+    dir = opendir(directory_path);
+    if (dir == NULL) {
+        perror("Error opening directory");
+        // pthread_exit(NULL);
+        return -1;
+    }
+    while ((entry = readdir(dir)) != NULL) {
+        
+    }
+
+    closedir(dir);
+
+    // signal/broadcast to workers to wake them up from their wait
 
 }
 
@@ -165,7 +191,7 @@ int main(int argc, char* argv[])
     // Check if fopen is successful
     log_file = fopen(argv[2], "w");
     if(log_file == NULL){
-        fprintf(stderr, "Enter a valid output directory\n");
+        fprintf(stderr, "Invalid output directory\n");
         return -1;
     }
 
@@ -184,10 +210,9 @@ int main(int argc, char* argv[])
     pthread_create(&processing_thread, NULL, processing, proc_args);
 
     // Create worker_thr_num number of worker threads
-    // RobertW : Not sure if this way of setting id or workerArray is correct
     for(int i = 0; i < worker_thr_num; i++){   
         id_arr[i] = i; 
-        pthread_create(&workerArray[i], NULL, worker, &id_arr[i]);
+        pthread_create(&workerArray[i], NULL, worker, (void *)&id_arr[i]);
     }
 
     // Join all threads after program is done
@@ -196,8 +221,15 @@ int main(int argc, char* argv[])
         pthread_join(workerArray[i], NULL);
     }
 
+    // Free mallocs and close opened files
     free(proc_args);
     fclose(log_file);
+
+    // Destroy mutexes and condition variables
+    pthread_mutex_destroy(&file_mut);
+    pthread_mutex_destroy(&queue_mut);
+    pthread_cond_destroy(&q_full_cond);
+    pthread_cond_destroy(&q_empty_cond);
 
     return 0;
 
