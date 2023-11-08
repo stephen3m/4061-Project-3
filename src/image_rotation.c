@@ -17,16 +17,18 @@ pthread_cond_t q_full_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
 //How will you track the requests globally between threads? How will you ensure this is thread safe?
 request_t *request_queue = NULL;
+request_t *end_queue = NULL;
 //How will you track which index in the request queue to remove next? We will use a dequeue function
 request_t *dequeue_request() {
     if (request_queue == NULL) {
         return NULL; // Queue is empty
     }
-
     request_t *ret_request = request_queue;
     request_queue = request_queue->next;
     queue_len--;
-
+    if (request_queue == NULL) {
+        end_queue = NULL; // Queue is empty
+    }
     return ret_request;
 }
 //How will you update and utilize the current number of requests in the request queue? 
@@ -35,6 +37,22 @@ queue_len = 0;
 pthread_t workerArray[1024];
 //How will you know where to insert the next request received into the request queue? We will use an enqueue function
 
+void enqueue_request(int new_angle, char* file_path){
+    request_t *new_request = malloc(sizeof(request_t));
+    strcpy(new_request->file_path, file_path);
+    new_request->angle = new_angle;
+    new_request->next = NULL;
+
+    if (request_queue == NULL){
+        request_queue = new_request;
+        end_queue = new_request;
+    }
+    else{
+        end_queue->next = new_request;
+        end_queue = end_queue->next;
+    }
+    queue_len ++;
+}
 /*
     The Function takes:
     to_write: A file pointer of where to write the logs. 
@@ -92,26 +110,25 @@ void *processing(void *args)
 
     struct dirent *entry;
     request_t request_queue = malloc(sizeof(request_t));
+
     while ((entry = readdir(dir)) != NULL) {
         // Skip the "." and ".." entries
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
 
-        pthread_mutex_lock(&queue_mut);
-        pthread_cond_wait(&q_full_cond, &queue_mut);
-        
-        strcpy(request_queue->file_path, entry);
-        request_queue->angle = proc_args->angle;
-        request_queue = request_queue->next;
-
+        // pthread_mutex_lock(&queue_mut);
+        // pthread_cond_wait(&q_full_cond, &queue_mut);
+        enqueue(angle, entry->d_name);
+        // pthread_mutex_unlock(&queue_mut);
+        // pthread_cond_signal(&q_full_cond, &queue_mut);
 
     }
 
     closedir(dir);
 
     // signal/broadcast to workers to wake them up from their wait
-
+    
 }
 
 /*
