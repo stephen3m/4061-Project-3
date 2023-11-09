@@ -13,11 +13,11 @@ int id_arr[1024];
 pthread_mutex_t file_mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t queue_mut = PTHREAD_MUTEX_INITIALIZER;
 //What kind of Condition Variables will you need  (i.e. queue full, queue empty) [Hint you need multiple]
-pthread_cond_t q_full_cond = PTHREAD_COND_INITIALIZER;
-pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
+// pthread_cond_t q_full_cond = PTHREAD_COND_INITIALIZER;
+// pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_has_work_cond = PTHREAD_COND_INITIALIZER;
-pthread_cond_t q_workers_done_cond = PTHREAD_COND_INITIALIZER;
-pthread_cond_t traversal_done_cond = PTHREAD_COND_INITIALIZER;
+// pthread_cond_t q_workers_done_cond = PTHREAD_COND_INITIALIZER;
+// pthread_cond_t traversal_done_cond = PTHREAD_COND_INITIALIZER;
 //How will you track the requests globally between threads? How will you ensure this is thread safe?
 request_t *req_queue = NULL;
 request_t *end_queue = NULL;
@@ -179,8 +179,10 @@ void *processing(void *args)
 
 void * worker(void *args)
 {
-
-
+        int* ptr = (int*)args;
+        int thd_ID = *ptr;
+        printf("Worker thread ID: %d\n", thd_ID);
+        pthread_exit(NULL);
         /*
             Stbi_load takes:
                 A file name, int pointer for width, height, and bpp
@@ -278,7 +280,7 @@ int main(int argc, char* argv[])
     // Create worker_thr_num number of worker threads
     for(int i = 0; i < worker_thr_num; i++){   
         id_arr[i] = i; 
-        printf("Worker thread ID: %d\n", i);
+        // printf("Worker thread ID: %d\n", i);
         pthread_create(&workerArray[i], NULL, worker, (void *)&id_arr[i]);
     }
 
@@ -295,8 +297,7 @@ int main(int argc, char* argv[])
     // Destroy mutexes and condition variables
     pthread_mutex_destroy(&file_mut);
     pthread_mutex_destroy(&queue_mut);
-    pthread_cond_destroy(&q_full_cond);
-    pthread_cond_destroy(&q_empty_cond);
+    pthread_cond_destroy(&q_has_work_cond);
 
     return 0;
 
