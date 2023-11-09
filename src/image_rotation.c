@@ -175,6 +175,7 @@ void *processing(void *args)
 
 void * worker(void *args)
 {
+        // For Inter Submission: Print worker thread ID and exit
         int* ptr = (int*)args;
         int thd_ID = *ptr;
         printf("Worker thread ID: %d\n", thd_ID);
@@ -252,7 +253,7 @@ int main(int argc, char* argv[])
     }
 
     // Open the file path to output directory
-    // Check if fopen is successful
+    // Check if opendir is successful
     DIR* output_directory = opendir(argv[2]);
     if(output_directory == NULL){
         fprintf(stderr, "Invalid output directory\n");
@@ -276,7 +277,6 @@ int main(int argc, char* argv[])
     // Create worker_thr_num number of worker threads
     for(int i = 0; i < worker_thr_num; i++){   
         id_arr[i] = i; 
-        // printf("Worker thread ID: %d\n", i);
         pthread_create(&workerArray[i], NULL, worker, (void *)&id_arr[i]);
     }
 
@@ -286,7 +286,7 @@ int main(int argc, char* argv[])
         pthread_join(workerArray[i], NULL);
     }
 
-    // Free mallocs and close opened files
+    // Free mallocs and close opened directory
     free(proc_args);
     closedir(output_directory);
 
