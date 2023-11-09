@@ -257,8 +257,8 @@ int main(int argc, char* argv[])
 
     // Open the file path to output directory
     // Check if fopen is successful
-    log_file = fopen(argv[2], "w");
-    if(log_file == NULL){
+    DIR* output_directory = opendir(argv[2]);
+    if(output_directory == NULL){
         fprintf(stderr, "Invalid output directory\n");
         return -1;
     }
@@ -292,7 +292,7 @@ int main(int argc, char* argv[])
 
     // Free mallocs and close opened files
     free(proc_args);
-    fclose(log_file);
+    closedir(output_directory);
 
     // Destroy mutexes and condition variables
     pthread_mutex_destroy(&file_mut);
