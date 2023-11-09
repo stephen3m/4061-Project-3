@@ -108,12 +108,11 @@ void *processing(void *args)
     // Check validity of input arguments
     if (args == NULL) {
         fprintf(stderr, "Expect a pointer to a structure processing_args_t.\n");
-        pthread_exit(NULL); // Yes use this instead of return
+        pthread_exit(NULL); 
     }
     processing_args_t *proc_args = (processing_args_t *)args;
     char directory_path[BUFF_SIZE];
     strcpy(directory_path, proc_args->directory_path);
-    // int num_workers = proc_args->num_workers;
     int angle = proc_args->angle;
 
     // Traverse directory and add its files into shared queue (use mutex lock queue_mut for synchronization)
@@ -124,7 +123,6 @@ void *processing(void *args)
     }
 
     struct dirent *entry;
-    // request_t *req_queue = malloc(sizeof(request_t));
 
     while ((entry = readdir(dir)) != NULL) {
         // Skip the "." and ".." entries
@@ -151,9 +149,7 @@ void *processing(void *args)
     // }
 
     // // Processing thread cross checks condition and broadcasts to worker threads to exit
-    // if (queue_len <= 0) {
-    //     pthread_cond_broadcast(&q_workers_done_cond);
-    // }
+    
     pthread_exit(NULL);
 }
 
@@ -189,15 +185,15 @@ void * worker(void *args)
 
         */
 
-       // uint8_t* image_result = stbi_load("??????","?????", "?????", "???????",  CHANNEL_NUM);
+    //    uint8_t* image_result = stbi_load("??????","?????", "?????", "???????",  CHANNEL_NUM);
         
 
-        // uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
-        // uint8_t** img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
-        // for(int i = 0; i < width; i++){
-        //     result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
-        //     img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
-        // }
+    //     uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
+    //     uint8_t** img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
+    //     for(int i = 0; i < width; i++){
+    //         result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
+    //         img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
+    //     }
         /*
         linear_to_image takes: 
             The image_result matrix from stbi_load
