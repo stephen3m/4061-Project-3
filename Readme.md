@@ -35,4 +35,4 @@ When it exits from the while loop, it will call pthread_cond_broadcast to let th
 For the worker threads, each one will call pthread_cond_wait to wait for there to be an entry in the request queue. There will be two condition variables to let it know if it should either exit or if there is work to be done.
 When the worker accesses the request queue to grab an entry, we need a mutex lock here to ensure that no other threads are making changes to the queue at the same time. 
 Each worker thread will also call log_pretty_print. Inside this function, we need a mutex lock since we are printing information to one output file. This ensures that the file isn't being accessed and changed at the same time by another thread. 
-At the end of main, it will join the processing thread and all worker threads. We free our mallocs, close our opened directories, and destroy the initialized mutex locks and condition variables.
+At the end of main, it will join the processing thread and all worker threads. We free our mallocs, close our opened directory, and destroy the initialized mutex locks and condition variables.
