@@ -19,27 +19,27 @@ pthread_cond_t q_has_work_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_workers_done_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t traversal_done_cond = PTHREAD_COND_INITIALIZER;
 //How will you track the requests globally between threads? How will you ensure this is thread safe?
-request_t *request_queue = NULL;
+request_t *req_queue = NULL;
 request_t *end_queue = NULL;
 //How will you track which index in the request queue to remove next? We will use a dequeue function
 request_t *dequeue_request() {
     pthread_mutex_lock(&queue_mut);
 
-    if (request_queue == NULL) {
+    if (req_queue == NULL) {
         pthread_mutex_unlock(&queue_mut);
         return NULL; // Queue is empty
     }
-    request_t *ret_request = request_queue;
-    request_queue = request_queue->next;
+    request_t *ret_request = req_queue;
+    req_queue = req_queue->next;
     queue_len--;
-    if (request_queue == NULL) { // Queue had one object which was dequeued
+    if (req_queue == NULL) { // Queue had one object which was dequeued
         end_queue = NULL; 
     }
     pthread_mutex_unlock(&queue_mut);
     return ret_request;
 }
 //How will you update and utilize the current number of requests in the request queue? 
-queue_len = 0;
+int request_len = 0;
 //How will you track the p_thread's that you create for workers?
 pthread_t workerArray[1024];
 //How will you know where to insert the next request received into the request queue? We will use an enqueue function
@@ -55,8 +55,8 @@ void enqueue_request(int new_angle, char* file_path){
     new_request->angle = new_angle;
     new_request->next = NULL;
 
-    if (request_queue == NULL){
-        request_queue = new_request;
+    if (req_queue == NULL){
+        req_queue = new_request;
         end_queue = new_request;
     }
     else{
@@ -113,7 +113,7 @@ void *processing(void *args)
     processing_args_t *proc_args = (processing_args_t *)args;
     char directory_path[BUFF_SIZE];
     strcpy(directory_path, proc_args->directory_path);
-    int num_workers = proc_args->num_workers;
+    // int num_workers = proc_args->num_workers;
     int angle = proc_args->angle;
 
     // Traverse directory and add its files into shared queue (use mutex lock queue_mut for synchronization)
@@ -124,7 +124,7 @@ void *processing(void *args)
     }
 
     struct dirent *entry;
-    request_t *request_queue = malloc(sizeof(request_t));
+    // request_t *req_queue = malloc(sizeof(request_t));
 
     while ((entry = readdir(dir)) != NULL) {
         // Skip the "." and ".." entries
@@ -190,12 +190,12 @@ void * worker(void *args)
        // uint8_t* image_result = stbi_load("??????","?????", "?????", "???????",  CHANNEL_NUM);
         
 
-        uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
-        uint8_t** img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
-        for(int i = 0; i < width; i++){
-            result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
-            img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
-        }
+        // uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
+        // uint8_t** img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
+        // for(int i = 0; i < width; i++){
+        //     result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
+        //     img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
+        // }
         /*
         linear_to_image takes: 
             The image_result matrix from stbi_load
