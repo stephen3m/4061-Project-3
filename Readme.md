@@ -26,8 +26,7 @@ Robert Tan:
 * Check processing
 * Work on worker
 
-**Plan on how you are going to construct the worker threads and how you will make use of mutex
-locks and unlock and Conditions variables**  
+**How you designed your program for Parallel image processing (pseudocode)**  
 In main, we will spawn one processing thread and n # of worker threads. We will do this by using one pthread_create for the processing thread and a for loop with pthread_create inside for the worker threads.
 Next, in processing, it will traverse through a directory and for every .png image file it finds, it will add an entry to the global request queue. For our queue, we have created two functions: dequeue_request and enqueue_request. For both of these functions, because we are accessing the global request queue, we need a mutex lock. We added pthread_mutex_lock(&queue_mut); at the beginning and pthread_mutex_unlock(&queue_mut); at the end of each function. 
 When the processing thread finishes traversing the directory, we need to broadcast to all worker threads that it has finished traversal. We do this by using pthread_cond_broadcast (condition variable will be used here). After, it will enter a while loop that calls pthread_cond_wait while the length of the queue is greater than 0. Here, another condition variable is needed for wait. 
