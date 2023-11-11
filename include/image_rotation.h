@@ -55,7 +55,7 @@ typedef struct processing_args {
 
 /********************* [ Function Prototypes       ] **********************/
 void *processing(void *args); 
-void * worker(void *args); 
+void *worker(void *args); 
 void log_pretty_print(FILE* to_write, int threadId, int requestNumber, char * file_name);
 
 #endif

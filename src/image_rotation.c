@@ -1,6 +1,5 @@
 #include "image_rotation.h"
  
- 
 //Global integer to indicate the length of the queue??
 int queue_len = 0;
 //Global integer to indicate the number of worker threads
@@ -13,6 +12,11 @@ int id_arr[1024];
 pthread_mutex_t file_mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t queue_mut = PTHREAD_MUTEX_INITIALIZER;
 //What kind of Condition Variables will you need  (i.e. queue full, queue empty) [Hint you need multiple]
+sem_t full_queue;
+sem_init(&full_queue, 0, MAX_QUEUE_LEN); // max length of the queue is 100 as specified in .h file
+sem_t empty_queue;
+sem_init(&empty_queue, 0, 0)
+pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
 // pthread_cond_t q_full_cond = PTHREAD_COND_INITIALIZER;
 // pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_has_work_cond = PTHREAD_COND_INITIALIZER;
@@ -39,7 +43,6 @@ request_t *dequeue_request() {
     return ret_request;
 }
 //How will you update and utilize the current number of requests in the request queue? 
-int request_len = 0;
 //How will you track the p_thread's that you create for workers?
 pthread_t workerArray[1024];
 //How will you know where to insert the next request received into the request queue? We will use an enqueue function
@@ -139,16 +142,18 @@ void *processing(void *args)
     }
     closedir(dir);
 
-    // // Processing thread has finished traversing through directory & adding entries to queue
-    // // Broadcast to worker threads that traversal is finished
-    // pthread_cond_broadcast(&traversal_done_cond);
+    // Processing thread has finished traversing through directory & adding entries to queue
+    // Broadcast to worker threads that traversal is finished
+    pthread_cond_broadcast(&traversal_done_cond);
 
-    // // Processing thread blocks for q_empty_cond until workers process all requests and queue is empty
-    // while (queue_len > 0) {
-    //     pthread_cond_wait(&q_workers_done_cond, &queue_mut);
-    // }
+    // Processing thread blocks for q_empty_cond until workers process all requests and queue is empty
+    while (queue_len > 0) {
+        pthread_cond_wait(&q_workers_done_cond, &queue_mut);
+    }
 
-    // // Processing thread cross checks condition and broadcasts to worker threads to exit
+    // Processing thread cross checks condition and broadcasts to worker threads to exit
+    // verify if the number of image files passed into the queue is equal to the total number of images processed by the workers
+    pthread_cond_broadcast(&exit_cond);
     
     pthread_exit(NULL);
 }
@@ -175,60 +180,83 @@ void *processing(void *args)
 
 void * worker(void *args)
 {
-        // For Inter Submission: Print worker thread ID and exit
-        int* ptr = (int*)args;
-        int thd_ID = *ptr;
-        printf("Worker thread ID: %d\n", thd_ID);
-        pthread_exit(NULL);
-        /*
-            Stbi_load takes:
-                A file name, int pointer for width, height, and bpp
+    // Get worker thread ID 
+    int* ptr = (int*)args;
+    int thd_ID = *ptr;
+    while(1) {
+        pthread_mutex_lock(&queue_mut);
+        // wait for signal that something has been added to queue
+        while (queue_len <= 0) { // Stephen: if the queue is empty, we must check if the processing thread is done traversing the directory. If so, we need to call pthread_exit(NULL). Otherwise, the workerthread waits
+            pthread_cond_wait(&q_has_work_cond, &queue_mut);
+            if (queue_len <= 0) { // handle race condition where multiple worker threads are waiting, ensures only one dequeues
+                pthread_mutex_unlock(&queue_mut);
+                continue; // go back to beginning of while(TRUE)
+            }
+            // Stephen: condition for exiting goes here? 
+        }
+        pthread_mutex_unlock(&queue_mut);
 
-        */
+        request_t *current_request = dequeue_request();
+        char *filename = current_request->file_path;
 
-    //    uint8_t* image_result = stbi_load("??????","?????", "?????", "???????",  CHANNEL_NUM);
-        
+        // Log request to file and terminal
+        // Stephen: do we need to open the file first? Also LOG_FILE_NAME is defined in image_rotation.h
+        // Stephen: also how do we figure out the requestNumber?
+        log_pretty_print(log_file, thd_ID, queue_len, file_path);
 
-    //     uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
-    //     uint8_t** img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
-    //     for(int i = 0; i < width; i++){
-    //         result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
-    //         img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
-    //     }
-        /*
-        linear_to_image takes: 
-            The image_result matrix from stbi_load
-            An image matrix
-            Width and height that were passed into stbi_load
-        
-        */
-        //linear_to_image("??????", "????", "????", "????");
-        
+        // Free malloc (in enqueue) for the current request
+        free(current_request);
+    }
 
-        ////TODO: you should be ready to call flip_left_to_right or flip_upside_down depends on the angle(Should just be 180 or 270)
-        //both take image matrix from linear_to_image, and result_matrix to store data, and width and height.
-        //Hint figure out which function you will call. 
-        //flip_left_to_right(img_matrix, result_matrix, width, height); or flip_upside_down(img_matrix, result_matrix ,width, height);
+    /*
+        Stbi_load takes:
+            A file name, int pointer for width, height, and bpp
 
+    */
+    // Stbi_load loads in an image from specified location
+    int *width;
+    int *height;
+    int *bpp;
+    uint8_t* image_result = stbi_load("??????","?????", "?????", "???????",  CHANNEL_NUM);
+    (char const *filename, int *x, int *y, int *channels_in_file, int desired_channels);
 
-        
-        
-        //uint8_t* img_array = NULL; ///Hint malloc using sizeof(uint8_t) * width * height
+    uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
+    uint8_t** img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
+    for(int i = 0; i < width; i++){
+        result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
+        img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
+    }
+    /*
+    linear_to_image takes: 
+        The image_result matrix from stbi_load
+        An image matrix
+        Width and height that were passed into stbi_load
+    
+    */
+    //linear_to_image("??????", "????", "????", "????");
     
 
-        ///TODO: you should be ready to call flatten_mat function, using result_matrix
-        //img_arry and width and height; 
-        //flatten_mat("??????", "??????", "????", "???????");
+    ////TODO: you should be ready to call flip_left_to_right or flip_upside_down depends on the angle(Should just be 180 or 270)
+    //both take image matrix from linear_to_image, and result_matrix to store data, and width and height.
+    //Hint figure out which function you will call. 
+    //flip_left_to_right(img_matrix, result_matrix, width, height); or flip_upside_down(img_matrix, result_matrix ,width, height);
 
-
-        ///TODO: You should be ready to call stbi_write_png using:
-        //New path to where you wanna save the file,
-        //Width
-        //height
-        //img_array
-        //width*CHANNEL_NUM
-       // stbi_write_png("??????", "?????", "??????", CHANNEL_NUM, "??????", "?????"*CHANNEL_NUM);
     
+    //uint8_t* img_array = NULL; ///Hint malloc using sizeof(uint8_t) * width * height
+
+
+    ///TODO: you should be ready to call flatten_mat function, using result_matrix
+    //img_arry and width and height; 
+    //flatten_mat("??????", "??????", "????", "???????");
+
+
+    ///TODO: You should be ready to call stbi_write_png using:
+    //New path to where you wanna save the file,
+    //Width
+    //height
+    //img_array
+    //width*CHANNEL_NUM
+    // stbi_write_png("??????", "?????", "??????", CHANNEL_NUM, "??????", "?????"*CHANNEL_NUM);
 
 }
 
@@ -239,8 +267,6 @@ void * worker(void *args)
         Create the threads needed
         Join on the created threads
         Clean any data if needed. 
-
-
 */
 
 int main(int argc, char* argv[])
@@ -290,11 +316,12 @@ int main(int argc, char* argv[])
     free(proc_args);
     closedir(output_directory);
 
-    // Destroy mutexes and condition variables
+    // Destroy mutexes and condition variables and semaphores
     pthread_mutex_destroy(&file_mut);
     pthread_mutex_destroy(&queue_mut);
     pthread_cond_destroy(&q_has_work_cond);
+    sem_destroy(&full_queue);
+    sem_destroy(&empty_queue);
 
     return 0;
-
 }
