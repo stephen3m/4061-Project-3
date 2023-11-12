@@ -20,8 +20,8 @@ pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
 // pthread_cond_t q_full_cond = PTHREAD_COND_INITIALIZER;
 // pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_has_work_cond = PTHREAD_COND_INITIALIZER;
-// pthread_cond_t q_workers_done_cond = PTHREAD_COND_INITIALIZER;
-// pthread_cond_t traversal_done_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t q_workers_done_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t traversal_done_cond = PTHREAD_COND_INITIALIZER;
 //How will you track the requests globally between threads? How will you ensure this is thread safe?
 request_t *req_queue = NULL;
 request_t *end_queue = NULL;
@@ -46,7 +46,7 @@ request_t *dequeue_request() {
 //How will you track the p_thread's that you create for workers?
 pthread_t workerArray[1024];
 //How will you know where to insert the next request received into the request queue? We will use an enqueue function
-void enqueue_request(int new_angle, char* file_path){
+void enqueue_request(int new_angle, char* file_path, int num){
     pthread_mutex_lock(&queue_mut);
 
     request_t *new_request = malloc(sizeof(request_t));
@@ -57,6 +57,7 @@ void enqueue_request(int new_angle, char* file_path){
     strcpy(new_request->file_path, file_path);
     new_request->angle = new_angle;
     new_request->next = NULL;
+    new_request->request_num = num;
 
     if (req_queue == NULL){
         req_queue = new_request;
@@ -69,6 +70,8 @@ void enqueue_request(int new_angle, char* file_path){
     queue_len++;
     pthread_mutex_unlock(&queue_mut);
 }
+// path to output directory
+char OUTPUT_PATH[BUFF_SIZE];
 
 
 /*
@@ -117,6 +120,7 @@ void *processing(void *args)
     char directory_path[BUFF_SIZE];
     strcpy(directory_path, proc_args->directory_path);
     int angle = proc_args->angle;
+    int num_images = 0;
 
     // Traverse directory and add its files into shared queue (use mutex lock queue_mut for synchronization)
     DIR *dir = opendir(directory_path);
@@ -136,7 +140,8 @@ void *processing(void *args)
         // Check for ".png" files
         char *extension = strrchr(entry->d_name, '.'); // gets pointer to last occurrence of "." in entry->d_name
         if (extension != NULL && strcmp(extension, ".png") == 0) { // check if file ends in ".png"
-            enqueue_request(angle, entry->d_name); // synchronization handled in enqueue_request
+            num_images++;
+            enqueue_request(angle, entry->d_name, num_images); // synchronization handled in enqueue_request
             pthread_cond_signal(&q_has_work_cond); // Signal to worker threads that queue isn't empty
         }
     }
@@ -149,13 +154,29 @@ void *processing(void *args)
     // Processing thread blocks for q_empty_cond until workers process all requests and queue is empty
     while (queue_len > 0) {
         pthread_cond_wait(&q_workers_done_cond, &queue_mut);
+        // how do we tell if ALL the workers are done with just one cv?
     }
 
     // Processing thread cross checks condition and broadcasts to worker threads to exit
     // verify if the number of image files passed into the queue is equal to the total number of images processed by the workers
-    pthread_cond_broadcast(&exit_cond);
-    
-    pthread_exit(NULL);
+    pthread_mutex_lock(&file_mut);
+    int numFilesVerified = 0;
+    rewind(log_file); // go back to start of file
+    int count = 0;
+    char buf[BUFF_SIZE] = {};
+    while (fgets(buf, 1024, log_file)) { // go through each line in file
+        count++; 
+    }
+    pthread_mutex_unlock(&file_mut);
+
+    if (count == num_images) {
+        pthread_cond_broadcast(&exit_cond);
+        pthread_exit(NULL);
+    } else {
+        int error = -1;
+        pthread_exit(&error);
+    }
+        
 }
 
 /*
@@ -200,63 +221,77 @@ void * worker(void *args)
         char *filename = current_request->file_path;
 
         // Log request to file and terminal
-        // Stephen: do we need to open the file first? Also LOG_FILE_NAME is defined in image_rotation.h
-        // Stephen: also how do we figure out the requestNumber?
-        log_pretty_print(log_file, thd_ID, queue_len, file_path);
+        // Stephen: do we need to open the file first? Also LOG_FILE_NAME is defined in image_rotation.h - opened in main
+        // Stephen: also how do we figure out the requestNumber? - added new param to struct that processing takes care of
+        log_pretty_print(log_file, thd_ID, current_request->request_num, current_request->file_path);
 
-        // Free malloc (in enqueue) for the current request
+
+        /*
+            Stbi_load takes:
+                A file name, int pointer for width, height, and bpp
+
+        */
+        // Stbi_load loads in an image from specified location
+        // just needs to pass in a pointer, will be initialized for you @piazza 472
+        int *width;
+        int *height;
+        int *bpp;
+        uint8_t* image_result = stbi_load(filename, width, height, bpp,  CHANNEL_NUM);
+
+        uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * *width);
+        uint8_t **img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * *width);
+        for(int i = 0; i < width; i++){
+            result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * *height);
+            img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * *height);
+        }
+
+        /*
+        linear_to_image takes: 
+            The image_result matrix from stbi_load
+            An image matrix
+            Width and height that were passed into stbi_load
+        
+        */
+        linear_to_image(image_result, img_matrix, *width, *height);
+        
+
+        ////TODO: you should be ready to call flip_left_to_right or flip_upside_down depends on the angle(Should just be 180 or 270)
+        //both take image matrix from linear_to_image, and result_matrix to store data, and width and height.
+        //Hint figure out which function you will call. 
+        
+        if (!strcmp(current_request->angle, "270"))
+            flip_left_to_right(img_matrix, result_matrix, width, height);
+         else if (!strcmp(current_request->angle, "180")) 
+            lip_upside_down(img_matrix, result_matrix ,width, height);
+
+        
+        uint8_t* img_array = malloc(sizeof(uint8_t) * *width * *height); ///Hint malloc using sizeof(uint8_t) * width * height
+
+        ///TODO: you should be ready to call flatten_mat function, using result_matrix
+        //img_arry and width and height; 
+        flatten_mat(result_matrix, img_array, *width, *height);
+
+
+        ///TODO: You should be ready to call stbi_write_png using:
+        //New path to where you wanna save the file,
+        //Width
+        //height
+        //img_array
+        //width*CHANNEL_NUM
+        char path[BUFF_SIZE] = {};
+        sprintf(path, "%s%s", OUTPUT_PATH, get_filename_from_path(current_request->file_path));
+        stbi_write_png(path, *width, *height, CHANNEL_NUM, img_array, *width*CHANNEL_NUM);
+
+        // Free EVERYTHING
+        for(int i = 0; i < width; i++){
+            free(result_matrix[i]);
+            free(img_matrix[i]);
+        }
+        free(result_matrix);
+        free(img_matrix);
+        free(img_array);
         free(current_request);
     }
-
-    /*
-        Stbi_load takes:
-            A file name, int pointer for width, height, and bpp
-
-    */
-    // Stbi_load loads in an image from specified location
-    int *width;
-    int *height;
-    int *bpp;
-    uint8_t* image_result = stbi_load("??????","?????", "?????", "???????",  CHANNEL_NUM);
-    (char const *filename, int *x, int *y, int *channels_in_file, int desired_channels);
-
-    uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
-    uint8_t** img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
-    for(int i = 0; i < width; i++){
-        result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
-        img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
-    }
-    /*
-    linear_to_image takes: 
-        The image_result matrix from stbi_load
-        An image matrix
-        Width and height that were passed into stbi_load
-    
-    */
-    //linear_to_image("??????", "????", "????", "????");
-    
-
-    ////TODO: you should be ready to call flip_left_to_right or flip_upside_down depends on the angle(Should just be 180 or 270)
-    //both take image matrix from linear_to_image, and result_matrix to store data, and width and height.
-    //Hint figure out which function you will call. 
-    //flip_left_to_right(img_matrix, result_matrix, width, height); or flip_upside_down(img_matrix, result_matrix ,width, height);
-
-    
-    //uint8_t* img_array = NULL; ///Hint malloc using sizeof(uint8_t) * width * height
-
-
-    ///TODO: you should be ready to call flatten_mat function, using result_matrix
-    //img_arry and width and height; 
-    //flatten_mat("??????", "??????", "????", "???????");
-
-
-    ///TODO: You should be ready to call stbi_write_png using:
-    //New path to where you wanna save the file,
-    //Width
-    //height
-    //img_array
-    //width*CHANNEL_NUM
-    // stbi_write_png("??????", "?????", "??????", CHANNEL_NUM, "??????", "?????"*CHANNEL_NUM);
 
 }
 
@@ -286,6 +321,13 @@ int main(int argc, char* argv[])
         return -1;
     }
 
+    // do we even need to open the directory to output?
+    memset(OUTPUT_PATH, 1, BUFF_SIZE);
+    sprintf(OUTPUT_PATH, argv[2]);
+    
+    log_file = fopen(("%s%s", "/output/", LOG_FILE_NAME), 'w+'); // i have no idea if this is legal
+    // log_file = fopen(LOG_FILE_IN_FOLDER, 'w+'); // in case not
+ 
     // Get the number of worker threads needed
     // Declare one processing thread as well
     worker_thr_num = atoi(argv[3]);
