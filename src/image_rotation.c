@@ -328,6 +328,10 @@ int main(int argc, char* argv[])
     
     log_file = fopen(("%s%s", "/output/", LOG_FILE_NAME), 'w+'); // i have no idea if this is legal
     // log_file = fopen(LOG_FILE_IN_FOLDER, 'w+'); // in case not
+    if(log_file == NULL){
+        fprintf(stderr, "Unable to create log file\n");
+        return -1;
+    }
  
     // Get the number of worker threads needed
     // Declare one processing thread as well
