@@ -169,6 +169,7 @@ void *processing(void *args)
     }
     pthread_mutex_unlock(&file_mut);
 
+    // check if # of lines in log file (each corresponds to an image being processed) is equal to number of images processed
     if (count == num_images) {
         pthread_cond_broadcast(&exit_cond);
         pthread_exit(NULL);
@@ -262,10 +263,10 @@ void * worker(void *args)
         if (!strcmp(current_request->angle, "270"))
             flip_left_to_right(img_matrix, result_matrix, width, height);
          else if (!strcmp(current_request->angle, "180")) 
-            lip_upside_down(img_matrix, result_matrix ,width, height);
+            flip_upside_down(img_matrix, result_matrix, width, height);
 
         
-        uint8_t* img_array = malloc(sizeof(uint8_t) * *width * *height); ///Hint malloc using sizeof(uint8_t) * width * height
+        uint8_t* img_array = malloc(sizeof(uint8_t) * (*width) * (*height)); ///Hint malloc using sizeof(uint8_t) * width * height
 
         ///TODO: you should be ready to call flatten_mat function, using result_matrix
         //img_arry and width and height; 
