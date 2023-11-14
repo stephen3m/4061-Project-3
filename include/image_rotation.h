@@ -44,7 +44,6 @@
 typedef struct request_t { // linked list
     char file_path[BUFF_SIZE]; 
     int angle; // stores angle of rotate, 180 or 270
-    int request_num;
     struct request_t *next; // pointer to next request 
 } request_t; 
 

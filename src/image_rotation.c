@@ -6,22 +6,19 @@ int queue_len = 0;
 int worker_thr_num = 0;
 //Global file pointer for writing to log file in worker??
 FILE *log_file;
+// Global bool for whether or not Processesing is done traversing
+int done_traversing = 0;
 //Might be helpful to track the ID's of your threads in a global array
 int id_arr[1024];
 //What kind of locks will you need to make everything thread safe? [Hint you need multiple]
 pthread_mutex_t file_mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t queue_mut = PTHREAD_MUTEX_INITIALIZER;
 //What kind of Condition Variables will you need  (i.e. queue full, queue empty) [Hint you need multiple]
-sem_t full_queue;
-sem_init(&full_queue, 0, MAX_QUEUE_LEN); // max length of the queue is 100 as specified in .h file
-sem_t empty_queue;
-sem_init(&empty_queue, 0, 0)
-pthread_cond_t exit_cond = PTHREAD_COND_INITIALIZER;
-// pthread_cond_t q_full_cond = PTHREAD_COND_INITIALIZER;
-// pthread_cond_t q_empty_cond = PTHREAD_COND_INITIALIZER;
+sem_t exit_worker;
+sem_init(&exit_worker, 0, 0);
+
 pthread_cond_t q_has_work_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_workers_done_cond = PTHREAD_COND_INITIALIZER;
-pthread_cond_t traversal_done_cond = PTHREAD_COND_INITIALIZER;
 //How will you track the requests globally between threads? How will you ensure this is thread safe?
 request_t *req_queue = NULL;
 request_t *end_queue = NULL;
@@ -46,7 +43,7 @@ request_t *dequeue_request() {
 //How will you track the p_thread's that you create for workers?
 pthread_t workerArray[1024];
 //How will you know where to insert the next request received into the request queue? We will use an enqueue function
-void enqueue_request(int new_angle, char* file_path, int num){
+void enqueue_request(int new_angle, char* file_path){
     pthread_mutex_lock(&queue_mut);
 
     request_t *new_request = malloc(sizeof(request_t));
@@ -57,7 +54,6 @@ void enqueue_request(int new_angle, char* file_path, int num){
     strcpy(new_request->file_path, file_path);
     new_request->angle = new_angle;
     new_request->next = NULL;
-    new_request->request_num = num;
 
     if (req_queue == NULL){
         req_queue = new_request;
@@ -149,12 +145,14 @@ void *processing(void *args)
 
     // Processing thread has finished traversing through directory & adding entries to queue
     // Broadcast to worker threads that traversal is finished
-    pthread_cond_broadcast(&traversal_done_cond);
+    done_traversing = 1;
+    pthread_cond_broadcast(&q_has_work_cond);
 
+    int num_workers_done = 0;
     // Processing thread blocks for q_empty_cond until workers process all requests and queue is empty
-    while (queue_len > 0) {
+    while (num_workers_done < worker_thr_num) {
         pthread_cond_wait(&q_workers_done_cond, &queue_mut);
-        // how do we tell if ALL the workers are done with just one cv?
+        num_workers_done++;
     }
 
     // Processing thread cross checks condition and broadcasts to worker threads to exit
@@ -171,7 +169,9 @@ void *processing(void *args)
 
     // check if # of lines in log file (each corresponds to an image being processed) is equal to number of images processed
     if (count == num_images) {
-        pthread_cond_broadcast(&exit_cond);
+        for (int i = 0; i < worker_thr_num; i++) {
+            sem_post(&exit_worker);
+        }
         pthread_exit(NULL);
     } else {
         int error = -1;
@@ -205,27 +205,30 @@ void * worker(void *args)
     // Get worker thread ID 
     int* ptr = (int*)args;
     int thd_ID = *ptr;
+    int num_images_handled = 0;
     while(1) {
         pthread_mutex_lock(&queue_mut);
         // wait for signal that something has been added to queue
-        while (queue_len <= 0) { // Stephen: if the queue is empty, we must check if the processing thread is done traversing the directory. If so, we need to call pthread_exit(NULL). Otherwise, the workerthread waits
-            pthread_cond_wait(&q_has_work_cond, &queue_mut);
-            if (queue_len <= 0) { // handle race condition where multiple worker threads are waiting, ensures only one dequeues
-                pthread_mutex_unlock(&queue_mut);
-                continue; // go back to beginning of while(TRUE)
-            }
-            // Stephen: condition for exiting goes here? 
+        while (queue_len <= 0) {
+            // if queue empty and no more to be added, signal process that this worker is finished
+            // otherwise, wait for more stuff to be added to the queue
+            if (done_traversing) {
+                pthread_signal(&q_workers_done_cond);
+                sem_wait(&exit_worker);
+            } else 
+                pthread_cond_wait(&q_has_work_cond, &queue_mut);
+                if (queue_len <= 0) { // handle race condition where multiple worker threads are waiting, ensures only one dequeues
+                    pthread_mutex_unlock(&queue_mut);
+                    continue; // go back to beginning of while(TRUE)
+                }
         }
         pthread_mutex_unlock(&queue_mut);
 
         request_t *current_request = dequeue_request();
+        if (current_request == NULL)
+            continue;
+
         char *filename = current_request->file_path;
-
-        // Log request to file and terminal
-        // Stephen: do we need to open the file first? Also LOG_FILE_NAME is defined in image_rotation.h - opened in main
-        // Stephen: also how do we figure out the requestNumber? - added new param to struct that processing takes care of
-        log_pretty_print(log_file, thd_ID, current_request->request_num, current_request->file_path);
-
 
         /*
             Stbi_load takes:
@@ -237,7 +240,7 @@ void * worker(void *args)
         int *width;
         int *height;
         int *bpp;
-        uint8_t* image_result = stbi_load(filename, width, height, bpp,  CHANNEL_NUM);
+        uint8_t* image_result = stbi_load(filename, width, height, bpp, CHANNEL_NUM);
 
         uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * *width);
         uint8_t **img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * *width);
@@ -279,19 +282,30 @@ void * worker(void *args)
         //height
         //img_array
         //width*CHANNEL_NUM
-        char path[BUFF_SIZE] = {};
+        char path[BUFF_SIZE];
+        memset(path, 0, BUFF_SIZE);
         sprintf(path, "%s%s", OUTPUT_PATH, get_filename_from_path(current_request->file_path));
-        stbi_write_png(path, *width, *height, CHANNEL_NUM, img_array, *width*CHANNEL_NUM);
+        stbi_write_png(path, *width, *height, CHANNEL_NUM, img_array, (*width) * CHANNEL_NUM);
+
+        // Log request to file and terminal
+        num_images_handled++;
+        log_pretty_print(log_file, thd_ID, num_images_handled, current_request->file_path);
 
         // Free EVERYTHING
         for(int i = 0; i < width; i++){
             free(result_matrix[i]);
             free(img_matrix[i]);
+            result_matrix[i] = NULL;
+            img_matrix[i] = NULL;
         }
         free(result_matrix);
         free(img_matrix);
         free(img_array);
         free(current_request);
+        result_matrix = NULL;
+        img_matrix = NULL;
+        img_array = NULL;
+        current_request = NULL;
     }
 
 }
@@ -323,7 +337,7 @@ int main(int argc, char* argv[])
     }
 
     // do we even need to open the directory to output?
-    memset(OUTPUT_PATH, 1, BUFF_SIZE);
+    memset(OUTPUT_PATH, 0, BUFF_SIZE);
     sprintf(OUTPUT_PATH, argv[2]);
     
     log_file = fopen(("%s%s", "/output/", LOG_FILE_NAME), 'w+'); // i have no idea if this is legal
@@ -367,8 +381,8 @@ int main(int argc, char* argv[])
     pthread_mutex_destroy(&file_mut);
     pthread_mutex_destroy(&queue_mut);
     pthread_cond_destroy(&q_has_work_cond);
-    sem_destroy(&full_queue);
-    sem_destroy(&empty_queue);
+    pthread_cond_destroy(&q_workers_done_cond);
+    sem_destroy(&exit_worker);
 
     return 0;
 }
