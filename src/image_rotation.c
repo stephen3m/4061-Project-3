@@ -213,6 +213,7 @@ void * worker(void *args)
             if (done_traversing) {
                 pthread_cond_signal(&q_workers_done_cond);
                 sem_wait(&exit_worker);
+                pthread_exit(NULL);
             } else {
                 pthread_cond_wait(&q_has_work_cond, &queue_mut);
                 if (queue_len <= 0) { // handle race condition where multiple worker threads are waiting, ensures only one dequeues
