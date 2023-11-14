@@ -15,7 +15,6 @@ pthread_mutex_t file_mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t queue_mut = PTHREAD_MUTEX_INITIALIZER;
 //What kind of Condition Variables will you need  (i.e. queue full, queue empty) [Hint you need multiple]
 sem_t exit_worker;
-sem_init(&exit_worker, 0, 0);
 
 pthread_cond_t q_has_work_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_workers_done_cond = PTHREAD_COND_INITIALIZER;
@@ -137,7 +136,7 @@ void *processing(void *args)
         char *extension = strrchr(entry->d_name, '.'); // gets pointer to last occurrence of "." in entry->d_name
         if (extension != NULL && strcmp(extension, ".png") == 0) { // check if file ends in ".png"
             num_images++;
-            enqueue_request(angle, entry->d_name, num_images); // synchronization handled in enqueue_request
+            enqueue_request(angle, entry->d_name); // synchronization handled in enqueue_request
             pthread_cond_signal(&q_has_work_cond); // Signal to worker threads that queue isn't empty
         }
     }
@@ -158,17 +157,16 @@ void *processing(void *args)
     // Processing thread cross checks condition and broadcasts to worker threads to exit
     // verify if the number of image files passed into the queue is equal to the total number of images processed by the workers
     pthread_mutex_lock(&file_mut);
-    int numFilesVerified = 0;
     rewind(log_file); // go back to start of file
-    int count = 0;
+    int numFilesVerified = 0;
     char buf[BUFF_SIZE] = {};
     while (fgets(buf, 1024, log_file)) { // go through each line in file
-        count++; 
+        numFilesVerified++; 
     }
     pthread_mutex_unlock(&file_mut);
 
     // check if # of lines in log file (each corresponds to an image being processed) is equal to number of images processed
-    if (count == num_images) {
+    if (numFilesVerified == num_images) {
         for (int i = 0; i < worker_thr_num; i++) {
             sem_post(&exit_worker);
         }
@@ -213,7 +211,7 @@ void * worker(void *args)
             // if queue empty and no more to be added, signal process that this worker is finished
             // otherwise, wait for more stuff to be added to the queue
             if (done_traversing) {
-                pthread_signal(&q_workers_done_cond);
+                pthread_cond_signal(&q_workers_done_cond);
                 sem_wait(&exit_worker);
             } else 
                 pthread_cond_wait(&q_has_work_cond, &queue_mut);
@@ -346,6 +344,8 @@ int main(int argc, char* argv[])
         fprintf(stderr, "Unable to create log file\n");
         return -1;
     }
+
+    sem_init(&exit_worker, 0, 0);
  
     // Get the number of worker threads needed
     // Declare one processing thread as well

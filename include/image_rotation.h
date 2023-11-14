@@ -19,6 +19,7 @@
 #include <limits.h>
 #include <stdint.h>
 #include "utils.h"
+#include <semaphore.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
