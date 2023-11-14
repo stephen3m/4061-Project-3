@@ -33,7 +33,7 @@
 /********************* [ Helpful Macro Definitions ] **********************/
 #define BUFF_SIZE 1024 
 #define LOG_FILE_NAME "request_log"               //Standardized log file name
-#define LOG_FILE_IN_FOLDER "/output/request_log"               //Standardized log file name
+#define LOG_FILE_IN_FOLDER "./output/request_log.txt" //(Non)Standardized log file name
 #define INVALID -1                                  //Reusable int for marking things as invalid or incorrect
 #define MAX_THREADS 100                             //Maximum number of threads
 #define MAX_QUEUE_LEN 100                           //Maximum queue length

@@ -213,12 +213,13 @@ void * worker(void *args)
             if (done_traversing) {
                 pthread_cond_signal(&q_workers_done_cond);
                 sem_wait(&exit_worker);
-            } else 
+            } else {
                 pthread_cond_wait(&q_has_work_cond, &queue_mut);
                 if (queue_len <= 0) { // handle race condition where multiple worker threads are waiting, ensures only one dequeues
                     pthread_mutex_unlock(&queue_mut);
                     continue; // go back to beginning of while(TRUE)
                 }
+            }
         }
         pthread_mutex_unlock(&queue_mut);
 
@@ -235,14 +236,14 @@ void * worker(void *args)
         */
         // Stbi_load loads in an image from specified location
         // just needs to pass in a pointer, will be initialized for you @piazza 472
-        int *width;
-        int *height;
-        int *bpp;
+        int *width = NULL;
+        int *height = NULL;
+        int *bpp = NULL;
         uint8_t* image_result = stbi_load(filename, width, height, bpp, CHANNEL_NUM);
 
         uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * *width);
         uint8_t **img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * *width);
-        for(int i = 0; i < width; i++){
+        for(int i = 0; i < *width; i++){
             result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * *height);
             img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * *height);
         }
@@ -261,10 +262,10 @@ void * worker(void *args)
         //both take image matrix from linear_to_image, and result_matrix to store data, and width and height.
         //Hint figure out which function you will call. 
         
-        if (!strcmp(current_request->angle, "270"))
-            flip_left_to_right(img_matrix, result_matrix, width, height);
-         else if (!strcmp(current_request->angle, "180")) 
-            flip_upside_down(img_matrix, result_matrix, width, height);
+        if (current_request->angle == 270)
+            flip_left_to_right(img_matrix, result_matrix, *width, *height);
+         else if (current_request->angle == 180) 
+            flip_upside_down(img_matrix, result_matrix, *width, *height);
 
         
         uint8_t* img_array = malloc(sizeof(uint8_t) * (*width) * (*height)); ///Hint malloc using sizeof(uint8_t) * width * height
@@ -290,7 +291,7 @@ void * worker(void *args)
         log_pretty_print(log_file, thd_ID, num_images_handled, current_request->file_path);
 
         // Free EVERYTHING
-        for(int i = 0; i < width; i++){
+        for(int i = 0; i < *width; i++){
             free(result_matrix[i]);
             free(img_matrix[i]);
             result_matrix[i] = NULL;
@@ -336,10 +337,10 @@ int main(int argc, char* argv[])
 
     // do we even need to open the directory to output?
     memset(OUTPUT_PATH, 0, BUFF_SIZE);
-    sprintf(OUTPUT_PATH, argv[2]);
+    strcpy(OUTPUT_PATH, argv[2]);
     
-    log_file = fopen(("%s%s", "/output/", LOG_FILE_NAME), 'w+'); // i have no idea if this is legal
-    // log_file = fopen(LOG_FILE_IN_FOLDER, 'w+'); // in case not
+    // log_file = fopen(("%s%s", "/output/", LOG_FILE_NAME), 'w+'); // i have no idea if this is legal
+    log_file = fopen(LOG_FILE_IN_FOLDER, "w+"); // in case not
     if(log_file == NULL){
         fprintf(stderr, "Unable to create log file\n");
         return -1;
