@@ -26,8 +26,6 @@ request_t *req_queue = NULL;
 request_t *end_queue = NULL;
 //How will you track which index in the request queue to remove next? We will use a dequeue function
 request_t *dequeue_request() {
-    // pthread_mutex_lock(&queue_mut);
-
     if (req_queue == NULL) {
         pthread_mutex_unlock(&queue_mut);
         return NULL; // Queue is empty
@@ -38,7 +36,6 @@ request_t *dequeue_request() {
     if (req_queue == NULL) { // Queue had one object which was dequeued
         end_queue = NULL; 
     }
-    // pthread_mutex_unlock(&queue_mut);
     return ret_request;
 }
 //How will you update and utilize the current number of requests in the request queue? 
@@ -159,7 +156,6 @@ void *processing(void *args)
         printf("workers done %d\n", num_workers_done);
     }
 
-    printf("WORKER DONE ALL\n");
     // Processing thread cross checks condition and broadcasts to worker threads to exit
     // verify if the number of image files passed into the queue is equal to the total number of images processed by the workers
     pthread_mutex_lock(&file_mut);
@@ -173,7 +169,6 @@ void *processing(void *args)
 
     // check if # of lines in log file (each corresponds to an image being processed) is equal to number of images processed
     if (numFilesVerified == num_images) {
-        printf("EQUALS\n");
         for (int i = 0; i < worker_thr_num; i++) {
             sem_post(&exit_worker);
         }
@@ -212,37 +207,26 @@ void * worker(void *args)
     int tot_requests_handled = 0; // used for log_pretty_print
     while(1) {
         pthread_mutex_lock(&queue_mut);
-        // wait for signal that something has been added to queue, enqueue increments queue_len
-        while (queue_len <= 0) {
-            // if queue empty and no more to be added, signal process that this worker is finished
-            // otherwise, wait for more stuff to be added to the queue
-            if (done_traversing) {
-                pthread_mutex_lock(&worker_done);
-                printf("%d\n", num_workers_done);
-                num_workers_done++;
-                pthread_mutex_unlock(&worker_done);
-                pthread_cond_signal(&q_workers_done_cond);
-                printf("Worker thread %d is ready to exit \n", thd_ID);
-                // sem_wait(&exit_worker);
-                pthread_exit(NULL);
-            } else {
-                printf("thread num %d is waiting \n", thd_ID);
-                pthread_cond_wait(&q_has_work_cond, &queue_mut);
-                printf("%d is done waiting \n", thd_ID);
-                printf("done traversing: %d\n", done_traversing);
-                if (queue_len <= 0) { // handle race condition where multiple worker threads are waiting, ensures only one dequeues
-                    pthread_mutex_unlock(&queue_mut);
-                    printf("%d got sent back to start of loop \n", thd_ID);
-                    continue; // go back to beginning of while(1)
-                }
-            }
+        // wait while queue is empty and processing thread still needs to add requests to queue 
+        while (queue_len <= 0 && !done_traversing) {
+            pthread_cond_wait(&q_has_work_cond, &queue_mut);
         }
-
+        // if queue is empty and processing thread finished traversing, exit
+        if (queue_len <= 0 && done_traversing) {
+            pthread_mutex_unlock(&queue_mut);
+            pthread_mutex_lock(&worker_done);
+            num_workers_done++;
+            pthread_mutex_unlock(&worker_done);
+            pthread_cond_signal(&q_workers_done_cond);
+            printf("Worker thread %d is ready to exit \n", thd_ID);
+            sem_wait(&exit_worker);
+            pthread_exit(NULL);
+        }
+        // else proceed to dequeue a request and process the image
         request_t *current_request = dequeue_request();
         if (current_request == NULL)
             continue;
         pthread_mutex_unlock(&queue_mut);
-
         char *filename = current_request->file_path;
 
         /*
@@ -351,9 +335,10 @@ int main(int argc, char* argv[])
     memset(OUTPUT_PATH, 0, BUFF_SIZE);
     strcpy(OUTPUT_PATH, argv[2]);
     
-    // log_file = fopen(("%s%s", "/output/", LOG_FILE_NAME), 'w+'); // i have no idea if this is legal
-    log_file = fopen(LOG_FILE_IN_FOLDER, "w+"); // in case not
+    // log_file = fopen(("%s%s", "/output/", LOG_FILE_NAME), 'w+'); 
+    log_file = fopen(LOG_FILE_IN_FOLDER, "w+"); 
     if(log_file == NULL){
+        fclose(log_file);
         fprintf(stderr, "Unable to create log file\n");
         return -1;
     }
@@ -386,13 +371,15 @@ int main(int argc, char* argv[])
         pthread_join(workerArray[i], NULL);
     }
 
-    // Free mallocs and close opened directory
+    // Free mallocs and close opened directory and opened file
     free(proc_args);
     closedir(output_directory);
+    fclose(log_file);
 
     // Destroy mutexes and condition variables and semaphores
     pthread_mutex_destroy(&file_mut);
     pthread_mutex_destroy(&queue_mut);
+    pthread_mutex_destroy(&worker_done);
     pthread_cond_destroy(&q_has_work_cond);
     pthread_cond_destroy(&q_workers_done_cond);
     sem_destroy(&exit_worker);
