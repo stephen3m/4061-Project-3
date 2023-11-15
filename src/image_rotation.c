@@ -335,8 +335,7 @@ int main(int argc, char* argv[])
     memset(OUTPUT_PATH, 0, BUFF_SIZE);
     strcpy(OUTPUT_PATH, argv[2]);
     
-    // log_file = fopen(("%s%s", "/output/", LOG_FILE_NAME), 'w+'); 
-    log_file = fopen(LOG_FILE_IN_FOLDER, "w+"); 
+    log_file = fopen(LOG_FILE_NAME, "w+"); 
     if(log_file == NULL){
         fclose(log_file);
         fprintf(stderr, "Unable to create log file\n");
