@@ -12,15 +12,15 @@ FILE *log_file;
 int done_traversing = 0;
 //Might be helpful to track the ID's of your threads in a global array
 int id_arr[1024];
-//What kind of locks will you need to make everything thread safe? [Hint you need multiple]
+//Mutexes
 pthread_mutex_t file_mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t queue_mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t worker_done = PTHREAD_MUTEX_INITIALIZER;
-//What kind of Condition Variables will you need  (i.e. queue full, queue empty) [Hint you need multiple]
-sem_t exit_worker;
-
+//Condition Variables
 pthread_cond_t q_has_work_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t q_workers_done_cond = PTHREAD_COND_INITIALIZER;
+//Semaphores
+sem_t exit_worker;
 //How will you track the requests globally between threads? How will you ensure this is thread safe?
 request_t *req_queue = NULL;
 request_t *end_queue = NULL;
@@ -153,7 +153,6 @@ void *processing(void *args)
         pthread_cond_wait(&q_workers_done_cond, &worker_done);
         pthread_mutex_unlock(&worker_done);
         pthread_cond_broadcast(&q_has_work_cond);
-        printf("workers done %d\n", num_workers_done);
     }
 
     // Processing thread cross checks condition and broadcasts to worker threads to exit
@@ -214,11 +213,12 @@ void * worker(void *args)
         // if queue is empty and processing thread finished traversing, exit
         if (queue_len <= 0 && done_traversing) {
             pthread_mutex_unlock(&queue_mut);
+            // mutex lock to ensure num_workers_done doesn't get changed by another thd
             pthread_mutex_lock(&worker_done);
             num_workers_done++;
             pthread_mutex_unlock(&worker_done);
+            // signal to processing thread that current worker thread has done, lets it move to next while loop iteration
             pthread_cond_signal(&q_workers_done_cond);
-            printf("Worker thread %d is ready to exit \n", thd_ID);
             sem_wait(&exit_worker);
             pthread_exit(NULL);
         }
@@ -331,7 +331,6 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    // do we even need to open the directory to output?
     memset(OUTPUT_PATH, 0, BUFF_SIZE);
     strcpy(OUTPUT_PATH, argv[2]);
     
