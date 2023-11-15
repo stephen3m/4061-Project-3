@@ -136,7 +136,10 @@ void *processing(void *args)
         char *extension = strrchr(entry->d_name, '.'); // gets pointer to last occurrence of "." in entry->d_name
         if (extension != NULL && strcmp(extension, ".png") == 0) { // check if file ends in ".png"
             num_images++;
-            enqueue_request(angle, entry->d_name); // synchronization handled in enqueue_request
+            char file_path[BUFF_SIZE*2];
+            memset(file_path, 0, BUFF_SIZE*2);
+            sprintf(file_path, "%s/%s", directory_path, entry->d_name);
+            enqueue_request(angle, file_path); // synchronization handled in enqueue_request
             pthread_cond_signal(&q_has_work_cond); // Signal to worker threads that queue isn't empty
         }
     }
@@ -144,14 +147,17 @@ void *processing(void *args)
 
     // Processing thread has finished traversing through directory & adding entries to queue
     // Broadcast to worker threads that traversal is finished
+    
     done_traversing = 1;
     pthread_cond_broadcast(&q_has_work_cond);
 
     int num_workers_done = 0;
     // Processing thread blocks for q_empty_cond until workers process all requests and queue is empty
     while (num_workers_done < worker_thr_num) {
+        printf("Hello\n");
         pthread_cond_wait(&q_workers_done_cond, &queue_mut);
         num_workers_done++;
+        pthread_mutex_unlock(&queue_mut);
     }
 
     // Processing thread cross checks condition and broadcasts to worker threads to exit
@@ -164,10 +170,12 @@ void *processing(void *args)
         numFilesVerified++; 
     }
     pthread_mutex_unlock(&file_mut);
+    // printf("# images: %d\n", numFilesVerified);
 
     // check if # of lines in log file (each corresponds to an image being processed) is equal to number of images processed
     if (numFilesVerified == num_images) {
         for (int i = 0; i < worker_thr_num; i++) {
+            printf("Processing thread has told a worker to exit \n");
             sem_post(&exit_worker);
         }
         pthread_exit(NULL);
@@ -213,6 +221,7 @@ void * worker(void *args)
             if (done_traversing) {
                 pthread_cond_signal(&q_workers_done_cond);
                 sem_wait(&exit_worker);
+                printf("Worker thread %d has exited \n", thd_ID);
                 pthread_exit(NULL);
             } else {
                 pthread_cond_wait(&q_has_work_cond, &queue_mut);
@@ -237,16 +246,16 @@ void * worker(void *args)
         */
         // Stbi_load loads in an image from specified location
         // just needs to pass in a pointer, will be initialized for you @piazza 472
-        int *width = NULL;
-        int *height = NULL;
-        int *bpp = NULL;
-        uint8_t* image_result = stbi_load(filename, width, height, bpp, CHANNEL_NUM);
+        int width;
+        int height;
+        int bpp;
+        uint8_t* image_result = stbi_load(filename, &width, &height, &bpp, CHANNEL_NUM);
 
-        uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * *width);
-        uint8_t **img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * *width);
-        for(int i = 0; i < *width; i++){
-            result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * *height);
-            img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * *height);
+        uint8_t **result_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
+        uint8_t **img_matrix = (uint8_t **)malloc(sizeof(uint8_t*) * width);
+        for(int i = 0; i < width; i++){
+            result_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
+            img_matrix[i] = (uint8_t *)malloc(sizeof(uint8_t) * height);
         }
 
         /*
@@ -256,25 +265,23 @@ void * worker(void *args)
             Width and height that were passed into stbi_load
         
         */
-        linear_to_image(image_result, img_matrix, *width, *height);
+        linear_to_image(image_result, img_matrix, width, height);
         
 
         ////TODO: you should be ready to call flip_left_to_right or flip_upside_down depends on the angle(Should just be 180 or 270)
         //both take image matrix from linear_to_image, and result_matrix to store data, and width and height.
         //Hint figure out which function you will call. 
         
-        if (current_request->angle == 270)
-            flip_left_to_right(img_matrix, result_matrix, *width, *height);
-         else if (current_request->angle == 180) 
-            flip_upside_down(img_matrix, result_matrix, *width, *height);
+        if (current_request->angle == 180)
+            flip_left_to_right(img_matrix, result_matrix, width, height);
+         else if (current_request->angle == 270) 
+            flip_upside_down(img_matrix, result_matrix, width, height);
 
-        
-        uint8_t* img_array = malloc(sizeof(uint8_t) * (*width) * (*height)); ///Hint malloc using sizeof(uint8_t) * width * height
+        uint8_t* img_array = malloc(sizeof(uint8_t) * (width) * (height)); ///Hint malloc using sizeof(uint8_t) * width * height
 
         ///TODO: you should be ready to call flatten_mat function, using result_matrix
         //img_arry and width and height; 
-        flatten_mat(result_matrix, img_array, *width, *height);
-
+        flatten_mat(result_matrix, img_array, width, height);
 
         ///TODO: You should be ready to call stbi_write_png using:
         //New path to where you wanna save the file,
@@ -282,17 +289,17 @@ void * worker(void *args)
         //height
         //img_array
         //width*CHANNEL_NUM
-        char path[BUFF_SIZE];
-        memset(path, 0, BUFF_SIZE);
-        sprintf(path, "%s%s", OUTPUT_PATH, get_filename_from_path(current_request->file_path));
-        stbi_write_png(path, *width, *height, CHANNEL_NUM, img_array, (*width) * CHANNEL_NUM);
+        char path[BUFF_SIZE+2];
+        memset(path, 0, BUFF_SIZE+2);
+        sprintf(path, "%s/%s", OUTPUT_PATH, get_filename_from_path(current_request->file_path));
+        stbi_write_png(path, width, height, CHANNEL_NUM, img_array, (width) * CHANNEL_NUM);
 
         // Log request to file and terminal
         num_images_handled++;
         log_pretty_print(log_file, thd_ID, num_images_handled, current_request->file_path);
 
         // Free EVERYTHING
-        for(int i = 0; i < *width; i++){
+        for(int i = 0; i < width; i++){
             free(result_matrix[i]);
             free(img_matrix[i]);
             result_matrix[i] = NULL;
