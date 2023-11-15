@@ -155,10 +155,11 @@ void *processing(void *args)
         pthread_mutex_lock(&worker_done);
         pthread_cond_wait(&q_workers_done_cond, &worker_done);
         pthread_mutex_unlock(&worker_done);
-        // pthread_cond_broadcast(&q_has_work_cond);
+        pthread_cond_broadcast(&q_has_work_cond);
         printf("workers done %d\n", num_workers_done);
     }
 
+    printf("WORKER DONE ALL\n");
     // Processing thread cross checks condition and broadcasts to worker threads to exit
     // verify if the number of image files passed into the queue is equal to the total number of images processed by the workers
     pthread_mutex_lock(&file_mut);
@@ -172,6 +173,7 @@ void *processing(void *args)
 
     // check if # of lines in log file (each corresponds to an image being processed) is equal to number of images processed
     if (numFilesVerified == num_images) {
+        printf("EQUALS\n");
         for (int i = 0; i < worker_thr_num; i++) {
             sem_post(&exit_worker);
         }
@@ -216,16 +218,18 @@ void * worker(void *args)
             // otherwise, wait for more stuff to be added to the queue
             if (done_traversing) {
                 pthread_mutex_lock(&worker_done);
+                printf("%d\n", num_workers_done);
                 num_workers_done++;
-                pthread_cond_signal(&q_workers_done_cond);
                 pthread_mutex_unlock(&worker_done);
+                pthread_cond_signal(&q_workers_done_cond);
                 printf("Worker thread %d is ready to exit \n", thd_ID);
-                sem_wait(&exit_worker);
+                // sem_wait(&exit_worker);
                 pthread_exit(NULL);
             } else {
                 printf("thread num %d is waiting \n", thd_ID);
                 pthread_cond_wait(&q_has_work_cond, &queue_mut);
                 printf("%d is done waiting \n", thd_ID);
+                printf("done traversing: %d\n", done_traversing);
                 if (queue_len <= 0) { // handle race condition where multiple worker threads are waiting, ensures only one dequeues
                     pthread_mutex_unlock(&queue_mut);
                     printf("%d got sent back to start of loop \n", thd_ID);
@@ -296,7 +300,7 @@ void * worker(void *args)
 
         // Log request to file and terminal
         tot_requests_handled++;
-        log_pretty_print(log_file, thd_ID, num_images_handled, current_request->file_path);
+        log_pretty_print(log_file, thd_ID, tot_requests_handled, current_request->file_path);
 
         // Free mallocs and set to NULL to avoid double frees
         for(int i = 0; i < width; i++){
@@ -305,6 +309,7 @@ void * worker(void *args)
             result_matrix[i] = NULL;
             img_matrix[i] = NULL;
         }
+
         free(result_matrix);
         free(img_matrix);
         free(img_array);
