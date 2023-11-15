@@ -115,10 +115,10 @@ void *processing(void *args)
         pthread_exit(NULL); 
     }
     processing_args_t *proc_args = (processing_args_t *)args;
-    char directory_path[BUFF_SIZE];
+    char directory_path[BUFF_SIZE]; // in the form "img/x"
     strcpy(directory_path, proc_args->directory_path);
-    int angle = proc_args->angle;
-    int num_images = 0;
+    int angle = proc_args->angle; // either 180 or 270
+    int num_images = 0; // how many images processing thread adds to queue
 
     // Traverse directory and add its files into shared queue (use mutex lock queue_mut for synchronization)
     DIR *dir = opendir(directory_path);
@@ -126,20 +126,17 @@ void *processing(void *args)
         perror("Error opening directory");
         pthread_exit(NULL);
     }
-
     struct dirent *entry;
-
     while ((entry = readdir(dir)) != NULL) {
         // Skip the "." and ".." entries
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
-
         // Check for ".png" files
         char *extension = strrchr(entry->d_name, '.'); // gets pointer to last occurrence of "." in entry->d_name
         if (extension != NULL && strcmp(extension, ".png") == 0) { // check if file ends in ".png"
             num_images++;
-            char file_path[BUFF_SIZE*2];
+            char file_path[BUFF_SIZE*2]; // in the form "img/x/xxx.png"
             memset(file_path, 0, BUFF_SIZE*2);
             sprintf(file_path, "%s/%s", directory_path, entry->d_name);
             enqueue_request(angle, file_path); // synchronization handled in enqueue_request
@@ -150,15 +147,15 @@ void *processing(void *args)
 
     // Processing thread has finished traversing through directory & adding entries to queue
     // Broadcast to worker threads that traversal is finished
-    
     done_traversing = 1;
     pthread_cond_broadcast(&q_has_work_cond);
 
-    // Processing thread blocks for q_empty_cond until workers process all requests and queue is empty
+    // Processing thread blocks for cv until workers process all requests and queue is empty
     while (num_workers_done < worker_thr_num) {
+        pthread_mutex_lock(&worker_done);
         pthread_cond_wait(&q_workers_done_cond, &worker_done);
         pthread_mutex_unlock(&worker_done);
-        pthread_cond_broadcast(&q_has_work_cond);
+        // pthread_cond_broadcast(&q_has_work_cond);
         printf("workers done %d\n", num_workers_done);
     }
 
@@ -172,12 +169,10 @@ void *processing(void *args)
         numFilesVerified++; 
     }
     pthread_mutex_unlock(&file_mut);
-    // printf("# images: %d\n", numFilesVerified);
 
     // check if # of lines in log file (each corresponds to an image being processed) is equal to number of images processed
     if (numFilesVerified == num_images) {
         for (int i = 0; i < worker_thr_num; i++) {
-            printf("Processing thread has told a worker to exit \n");
             sem_post(&exit_worker);
         }
         pthread_exit(NULL);
@@ -185,7 +180,6 @@ void *processing(void *args)
         int error = -1;
         pthread_exit(&error);
     }
-        
 }
 
 /*
@@ -213,10 +207,10 @@ void * worker(void *args)
     // Get worker thread ID 
     int* ptr = (int*)args;
     int thd_ID = *ptr;
-    int num_images_handled = 0;
+    int tot_requests_handled = 0; // used for log_pretty_print
     while(1) {
         pthread_mutex_lock(&queue_mut);
-        // wait for signal that something has been added to queue
+        // wait for signal that something has been added to queue, enqueue increments queue_len
         while (queue_len <= 0) {
             // if queue empty and no more to be added, signal process that this worker is finished
             // otherwise, wait for more stuff to be added to the queue
@@ -235,7 +229,7 @@ void * worker(void *args)
                 if (queue_len <= 0) { // handle race condition where multiple worker threads are waiting, ensures only one dequeues
                     pthread_mutex_unlock(&queue_mut);
                     printf("%d got sent back to start of loop \n", thd_ID);
-                    continue; // go back to beginning of while(TRUE)
+                    continue; // go back to beginning of while(1)
                 }
             }
         }
@@ -252,8 +246,7 @@ void * worker(void *args)
                 A file name, int pointer for width, height, and bpp
 
         */
-        // Stbi_load loads in an image from specified location
-        // just needs to pass in a pointer, will be initialized for you @piazza 472
+        // Stbi_load loads in an image from specified location; populates width, height, and bpp with values
         int width;
         int height;
         int bpp;
@@ -275,7 +268,6 @@ void * worker(void *args)
         */
         linear_to_image(image_result, img_matrix, width, height);
         
-
         ////TODO: you should be ready to call flip_left_to_right or flip_upside_down depends on the angle(Should just be 180 or 270)
         //both take image matrix from linear_to_image, and result_matrix to store data, and width and height.
         //Hint figure out which function you will call. 
@@ -303,10 +295,10 @@ void * worker(void *args)
         stbi_write_png(path, width, height, CHANNEL_NUM, img_array, (width) * CHANNEL_NUM);
 
         // Log request to file and terminal
-        num_images_handled++;
+        tot_requests_handled++;
         log_pretty_print(log_file, thd_ID, num_images_handled, current_request->file_path);
 
-        // Free EVERYTHING
+        // Free mallocs and set to NULL to avoid double frees
         for(int i = 0; i < width; i++){
             free(result_matrix[i]);
             free(img_matrix[i]);
@@ -322,7 +314,6 @@ void * worker(void *args)
         img_array = NULL;
         current_request = NULL;
     }
-
 }
 
 /*
