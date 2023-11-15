@@ -4,6 +4,8 @@
 int queue_len = 0;
 //Global integer to indicate the number of worker threads
 int worker_thr_num = 0;
+//Global integer to indicate the number of worker threads done
+int num_workers_done = 0;
 //Global file pointer for writing to log file in worker??
 FILE *log_file;
 // Global bool for whether or not Processesing is done traversing
@@ -13,6 +15,7 @@ int id_arr[1024];
 //What kind of locks will you need to make everything thread safe? [Hint you need multiple]
 pthread_mutex_t file_mut = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t queue_mut = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t worker_done = PTHREAD_MUTEX_INITIALIZER;
 //What kind of Condition Variables will you need  (i.e. queue full, queue empty) [Hint you need multiple]
 sem_t exit_worker;
 
@@ -23,7 +26,7 @@ request_t *req_queue = NULL;
 request_t *end_queue = NULL;
 //How will you track which index in the request queue to remove next? We will use a dequeue function
 request_t *dequeue_request() {
-    pthread_mutex_lock(&queue_mut);
+    // pthread_mutex_lock(&queue_mut);
 
     if (req_queue == NULL) {
         pthread_mutex_unlock(&queue_mut);
@@ -35,7 +38,7 @@ request_t *dequeue_request() {
     if (req_queue == NULL) { // Queue had one object which was dequeued
         end_queue = NULL; 
     }
-    pthread_mutex_unlock(&queue_mut);
+    // pthread_mutex_unlock(&queue_mut);
     return ret_request;
 }
 //How will you update and utilize the current number of requests in the request queue? 
@@ -151,13 +154,12 @@ void *processing(void *args)
     done_traversing = 1;
     pthread_cond_broadcast(&q_has_work_cond);
 
-    int num_workers_done = 0;
     // Processing thread blocks for q_empty_cond until workers process all requests and queue is empty
     while (num_workers_done < worker_thr_num) {
-        printf("Hello\n");
-        pthread_cond_wait(&q_workers_done_cond, &queue_mut);
-        num_workers_done++;
-        pthread_mutex_unlock(&queue_mut);
+        pthread_cond_wait(&q_workers_done_cond, &worker_done);
+        pthread_mutex_unlock(&worker_done);
+        pthread_cond_broadcast(&q_has_work_cond);
+        printf("workers done %d\n", num_workers_done);
     }
 
     // Processing thread cross checks condition and broadcasts to worker threads to exit
@@ -219,23 +221,29 @@ void * worker(void *args)
             // if queue empty and no more to be added, signal process that this worker is finished
             // otherwise, wait for more stuff to be added to the queue
             if (done_traversing) {
+                pthread_mutex_lock(&worker_done);
+                num_workers_done++;
                 pthread_cond_signal(&q_workers_done_cond);
+                pthread_mutex_unlock(&worker_done);
+                printf("Worker thread %d is ready to exit \n", thd_ID);
                 sem_wait(&exit_worker);
-                printf("Worker thread %d has exited \n", thd_ID);
                 pthread_exit(NULL);
             } else {
+                printf("thread num %d is waiting \n", thd_ID);
                 pthread_cond_wait(&q_has_work_cond, &queue_mut);
+                printf("%d is done waiting \n", thd_ID);
                 if (queue_len <= 0) { // handle race condition where multiple worker threads are waiting, ensures only one dequeues
                     pthread_mutex_unlock(&queue_mut);
+                    printf("%d got sent back to start of loop \n", thd_ID);
                     continue; // go back to beginning of while(TRUE)
                 }
             }
         }
-        pthread_mutex_unlock(&queue_mut);
 
         request_t *current_request = dequeue_request();
         if (current_request == NULL)
             continue;
+        pthread_mutex_unlock(&queue_mut);
 
         char *filename = current_request->file_path;
 
