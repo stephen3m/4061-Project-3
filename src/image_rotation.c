@@ -144,7 +144,9 @@ void *processing(void *args)
 
     // Processing thread has finished traversing through directory & adding entries to queue
     // Broadcast to worker threads that traversal is finished
+    pthread_mutex_lock(&queue_mut);
     done_traversing = 1;
+    pthread_mutex_unlock(&queue_mut);
     pthread_cond_broadcast(&q_has_work_cond);
 
     // Processing thread blocks for cv until workers process all requests and queue is empty
@@ -298,6 +300,8 @@ void * worker(void *args)
         free(img_matrix);
         free(img_array);
         free(current_request);
+        free(image_result);
+        image_result = NULL;
         result_matrix = NULL;
         img_matrix = NULL;
         img_array = NULL;
@@ -364,10 +368,10 @@ int main(int argc, char* argv[])
     }
 
     // Join all threads after program is done
-    pthread_join(processing_thread, NULL);
     for(int i = 0; i < worker_thr_num; i++){   
         pthread_join(workerArray[i], NULL);
     }
+    pthread_join(processing_thread, NULL);
 
     // Free mallocs and close opened directory and opened file
     free(proc_args);
