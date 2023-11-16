@@ -65,9 +65,9 @@ void enqueue_request(int new_angle, char* file_path){
     queue_len++;
     pthread_mutex_unlock(&queue_mut);
 }
+
 // path to output directory
 char OUTPUT_PATH[BUFF_SIZE];
-
 
 /*
     The Function takes:
@@ -90,7 +90,6 @@ void log_pretty_print(FILE* to_write, int threadId, int requestNumber, char * fi
 }
 
 /*
-
     1: The processing function takes a void* argument called args. It is expected to be a pointer to a structure processing_args_t 
     that contains information necessary for processing.
 
@@ -111,6 +110,7 @@ void *processing(void *args)
         fprintf(stderr, "Expect a pointer to a structure processing_args_t.\n");
         pthread_exit(NULL); 
     }
+
     processing_args_t *proc_args = (processing_args_t *)args;
     char directory_path[BUFF_SIZE]; // in the form "img/x"
     strcpy(directory_path, proc_args->directory_path);
@@ -120,7 +120,7 @@ void *processing(void *args)
     // Traverse directory and add its files into shared queue (use mutex lock queue_mut for synchronization)
     DIR *dir = opendir(directory_path);
     if (dir == NULL) {
-        perror("Error opening directory");
+        fprintf(stderr, "Error opening directory.\n");
         pthread_exit(NULL);
     }
     struct dirent *entry;
@@ -202,10 +202,16 @@ void *processing(void *args)
 
 void * worker(void *args)
 {
+    if (args == NULL) {
+        fprintf(stderr, "Expect a pointer to an int.\n");
+        pthread_exit(NULL); 
+    }
+
     // Get worker thread ID 
     int* ptr = (int*)args;
     int thd_ID = *ptr;
     int tot_requests_handled = 0; // used for log_pretty_print
+
     while(1) {
         pthread_mutex_lock(&queue_mut);
         // wait while queue is empty and processing thread still needs to add requests to queue 
@@ -226,8 +232,9 @@ void * worker(void *args)
         }
         // else proceed to dequeue a request and process the image
         request_t *current_request = dequeue_request();
-        if (current_request == NULL)
+        if (current_request == NULL){
             continue;
+        }
         pthread_mutex_unlock(&queue_mut);
         char *filename = current_request->file_path;
 
@@ -264,7 +271,7 @@ void * worker(void *args)
         
         if (current_request->angle == 180)
             flip_left_to_right(img_matrix, result_matrix, width, height);
-         else if (current_request->angle == 270) 
+        else if (current_request->angle == 270) 
             flip_upside_down(img_matrix, result_matrix, width, height);
 
         uint8_t* img_array = malloc(sizeof(uint8_t) * (width) * (height)); ///Hint malloc using sizeof(uint8_t) * width * height
@@ -321,8 +328,7 @@ void * worker(void *args)
 int main(int argc, char* argv[])
 {
     // Check validity of input arguments
-    if(argc != 5)
-    {
+    if(argc != 5){
         fprintf(stderr, "Usage: File Path to image dirctory, File path to output directory, number of worker thread, and Rotation angle\n");
         return -1;
     }
@@ -359,19 +365,31 @@ int main(int argc, char* argv[])
     proc_args->angle = atoi(argv[4]);
 
     // Create the processing thread with processing args
-    pthread_create(&processing_thread, NULL, processing, proc_args);
+    if (pthread_create(&processing_thread, NULL, processing, proc_args) != 0){
+        fprintf(stderr, "Error creating processing thread.\n");
+        return -1;
+    }
 
     // Create worker_thr_num number of worker threads
     for(int i = 0; i < worker_thr_num; i++){   
         id_arr[i] = i; 
-        pthread_create(&workerArray[i], NULL, worker, (void *)&id_arr[i]);
+        if(pthread_create(&workerArray[i], NULL, worker, (void *)&id_arr[i]) != 0){
+            fprintf(stderr, "Error creating worker thread.\n");
+            return -1;
+        }
     }
 
     // Join all threads after program is done
     for(int i = 0; i < worker_thr_num; i++){   
-        pthread_join(workerArray[i], NULL);
+        if(pthread_join(workerArray[i], NULL) != 0){
+            fprintf(stderr, "Error joining worker thread.\n");
+            return -1;
+        }
     }
-    pthread_join(processing_thread, NULL);
+    if(pthread_join(processing_thread, NULL) != 0){
+        fprintf(stderr, "Error joining processing thread.\n");
+        return -1;
+    }
 
     // Free mallocs and close opened directory and opened file
     free(proc_args);
